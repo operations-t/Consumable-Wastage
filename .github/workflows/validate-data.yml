@@ -1,0 +1,40 @@
+name: Validate source data
+
+# Runs the same build as the deploy workflow but publishes nothing.
+# Use this on pull requests, or manually, to prove a source-data refresh
+# parses cleanly before it reaches main.
+
+"on":
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Build and validate (no deploy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install data reader
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Build dashboard data and site
+        run: python scripts/build_site.py
+
+      - name: Verify build output
+        run: python scripts/verify_build.py
+
+      - name: Print data-quality summary
+        run: python scripts/verify_build.py --summary
