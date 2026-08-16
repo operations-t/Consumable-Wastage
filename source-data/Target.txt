@@ -1,0 +1,10 @@
+Final Criteria	Consumable % On Sales	Wastage % On Sales	Wastage % On PNP Sales
+Convenience Store-Non-PNP-FR	0.50%	0.06%	1.00%
+Convenience Store-Non-PNP-Own	0.50%	0.06%	1.00%
+Convenience Store-PNP-FR	0.70%	0.25%	1.00%
+Convenience Store-PNP-Own	0.80%	0.25%	1.00%
+Mega Store-PNP-Own	0.90%	0.25%	1.00%
+Super Store-Non-PNP-FR	0.60%	0.06%	1.00%
+Super Store-Non-PNP-Own	0.60%	0.06%	1.00%
+Super Store-PNP-FR	0.70%	0.25%	1.00%
+Super Store-PNP-Own	0.80%	0.25%	1.00%

@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b0d12" />
+    <meta name="description" content="Shwapno outlet consumable and wastage performance dashboard" />
+    <!-- Internal operating data: keep it out of search engine indexes. -->
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Consumable &amp; Wastage Control | Shwapno Operations</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23e5202e'/%3E%3Ctext x='16' y='23' font-family='Segoe UI,Arial,sans-serif' font-size='20' font-weight='700' fill='%23fff' text-anchor='middle'%3ES%3C/text%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="assets/styles.css" />
+    <script>
+      // Set the theme before first paint so there is no flash of the wrong theme.
+      (function () {
+        try {
+          var saved = window.localStorage.getItem("shwapno-theme");
+          if (saved === "light" || saved === "dark") {
+            document.documentElement.dataset.theme = saved;
+          }
+        } catch (error) {
+          /* storage blocked; keep the dark default */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <noscript>
+      <div style="padding: 24px; font: 16px/1.5 system-ui, sans-serif">
+        <strong>JavaScript is required.</strong>
+        This dashboard loads its data in the browser. Enable JavaScript, then reload the page.
+      </div>
+    </noscript>
+
+    <div id="loadingScreen" class="loading-screen" role="status" aria-live="polite">
+      <div class="loading-mark">S</div>
+      <div>
+        <strong>Preparing dashboard</strong>
+        <span>Validating the latest operating data…</span>
+      </div>
+    </div>
+
+    <div class="app-shell">
+      <aside id="rail" class="rail" aria-label="Navigation and filters">
+        <div class="rail-brand">
+          <div class="brand-mark" aria-hidden="true">S</div>
+          <div>
+            <div class="brand-name">Shwapno Operations</div>
+            <div class="brand-sub">Control centre</div>
+          </div>
+          <button id="railClose" class="rail-close" type="button" aria-label="Close menu">×</button>
+        </div>
+
+        <nav class="rail-nav" aria-label="Views">
+          <button class="nav-item is-active" data-view="overview" type="button">
+            <span class="nav-glyph" aria-hidden="true">◧</span> Overview
+          </button>
+          <button class="nav-item" data-view="league" type="button">
+            <span class="nav-glyph" aria-hidden="true">▤</span> League Tables
+          </button>
+          <button class="nav-item" data-view="exceptions" type="button">
+            <span class="nav-glyph" aria-hidden="true">▲</span> Exceptions
+            <span class="nav-count" id="exceptionCount"></span>
+          </button>
+          <button class="nav-item" data-view="benchmarks" type="button">
+            <span class="nav-glyph" aria-hidden="true">◇</span> Benchmarks
+          </button>
+          <button class="nav-item" data-view="materials" type="button">
+            <span class="nav-glyph" aria-hidden="true">≡</span> Materials
+          </button>
+          <button class="nav-item" data-view="outlets" type="button">
+            <span class="nav-glyph" aria-hidden="true">▦</span> Outlet Register
+          </button>
+        </nav>
+
+        <div class="rail-filters">
+          <div class="filters-head">
+            <span class="eyebrow">Global filters</span>
+            <button id="resetFilters" class="text-button" type="button">Reset</button>
+          </div>
+
+          <label class="field">
+            Quick period
+            <select id="quickPeriod">
+              <option value="all">Full loaded period</option>
+              <option value="7">Last 7 days</option>
+              <option value="14">Last 14 days</option>
+              <option value="mtd">Month to date</option>
+            </select>
+          </label>
+
+          <div class="field-row">
+            <label class="field">From<input id="dateFrom" type="date" /></label>
+            <label class="field">To<input id="dateTo" type="date" /></label>
+          </div>
+
+          <!-- Multi-select filters are built by app.js. Each one lists only the
+               values still reachable under the other active filters. -->
+          <div id="filterStack"></div>
+
+          <label class="field">
+            Find outlet
+            <input id="outletSearch" type="search" placeholder="Code or outlet name" autocomplete="off" />
+          </label>
+
+          <div id="activeFilterSummary" class="active-filters" hidden></div>
+        </div>
+
+        <div class="rail-foot">
+          <div class="rail-stat"><span>Selected outlets</span><strong id="selectedOutletCount">—</strong></div>
+          <div class="rail-stat"><span>Selected sales</span><strong id="selectedSales">—</strong></div>
+          <div class="rail-stat"><span>Comparison</span><strong id="compareLabel">—</strong></div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <button id="railToggle" class="btn btn-icon rail-toggle" type="button" aria-controls="rail" aria-expanded="false">
+            <span aria-hidden="true">☰</span> Filters
+          </button>
+          <div>
+            <span class="eyebrow eyebrow-brand">Operations performance</span>
+            <h1>Consumable &amp; Wastage Control</h1>
+            <p id="scopeSummary" class="topbar-scope">Loading current scope…</p>
+          </div>
+          <div class="topbar-actions">
+            <button id="compareToggle" class="btn" type="button" aria-pressed="false">
+              <span aria-hidden="true">⇄</span> Compare period
+            </button>
+            <div class="freshness">
+              <span class="live-dot" aria-hidden="true"></span>
+              <div><small>Data as of</small><strong id="asOfDate">—</strong></div>
+            </div>
+            <button id="themeToggle" class="btn btn-icon" type="button" aria-label="Switch to light theme">
+              <span id="themeGlyph" aria-hidden="true">☀</span>
+            </button>
+            <button id="dataQualityButton" class="btn" type="button">Data quality</button>
+          </div>
+        </header>
+
+        <!-- ============ OVERVIEW ============ -->
+        <section id="view-overview" class="view is-active">
+          <div id="kpiGrid" class="grid grid-kpi" aria-live="polite"></div>
+
+          <div class="grid grid-split" style="margin-top: 16px">
+            <article class="panel">
+              <div class="panel-head">
+                <div>
+                  <span class="eyebrow">Daily movement</span>
+                  <h2>Rate trend</h2>
+                  <p id="trendSubtitle">Consumable on overall sales and wastage on PNP sales</p>
+                </div>
+                <div class="panel-tools">
+                  <label class="field">Basis
+                    <select id="trendSmoothing" class="control">
+                      <option value="daily">Daily</option>
+                      <option value="rolling7">7-day rolling</option>
+                      <option value="cumulative">Period to date</option>
+                    </select>
+                  </label>
+                  <div class="chart-legend">
+                    <span><i class="swatch" style="background: var(--series-1)"></i>Consumable %</span>
+                    <span><i class="swatch" style="background: var(--series-2)"></i>Wastage on PNP %</span>
+                    <span id="priorLegend" hidden><i class="swatch swatch-dash"></i>Prior period</span>
+                  </div>
+                </div>
+              </div>
+              <div class="panel-body">
+                <div id="trendChart" class="chart"></div>
+                <p id="trendNote" class="chart-note" hidden></p>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-head">
+                <div>
+                  <span class="eyebrow">Control status</span>
+                  <h2>Target position</h2>
+                </div>
+                <div class="panel-tools">
+                  <select id="statusMetric" class="control" aria-label="Status metric">
+                    <option value="consumableRate">Consumable %</option>
+                    <option value="wastageSalesRate">Wastage on Sales %</option>
+                    <option value="wastagePnpRate">Wastage on PNP %</option>
+                  </select>
+                </div>
+              </div>
+              <div class="panel-body"><div id="statusDonut" class="donut-wrap"></div></div>
+            </article>
+          </div>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <span class="eyebrow">Performance ranking</span>
+                <h2>Hierarchy comparison</h2>
+                <p>Weighted performance. Higher rates first, because lower is better.</p>
+              </div>
+              <div class="panel-tools">
+                <label class="field">Level
+                  <select id="rankingDimension" class="control">
+                    <option value="zone">Zonal</option>
+                    <option value="regionalLeader">Regional Leader</option>
+                    <option value="division">Division</option>
+                    <option value="district">District</option>
+                    <option value="outlet">Outlet</option>
+                  </select>
+                </label>
+                <label class="field">Metric
+                  <select id="rankingMetric" class="control">
+                    <option value="consumableRate">Consumable %</option>
+                    <option value="wastageSalesRate">Wastage on Sales %</option>
+                    <option value="wastagePnpRate">Wastage on PNP %</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div class="panel-body"><div id="rankingChart" class="rank-list"></div></div>
+          </article>
+
+          <div id="moversPanel" class="panel" hidden>
+            <div class="panel-head">
+              <div>
+                <span class="eyebrow">Period on period</span>
+                <h2>Biggest movers</h2>
+                <p id="moversSubtitle">Largest swing against the previous equal-length period.</p>
+              </div>
+              <div class="panel-tools">
+                <select id="moversMetric" class="control" aria-label="Movers metric">
+                  <option value="consumableRate">Consumable %</option>
+                  <option value="wastageSalesRate">Wastage on Sales %</option>
+                  <option value="wastagePnpRate">Wastage on PNP %</option>
+                </select>
+              </div>
+            </div>
+            <div class="grid grid-halves" style="padding: 16px 18px; margin: 0">
+              <div><div class="section-title">Worsened</div><div id="moversWorse"></div></div>
+              <div><div class="section-title">Improved</div><div id="moversBetter"></div></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ LEAGUE ============ -->
+        <section id="view-league" class="view">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <span class="eyebrow">Ranked performance</span>
+                <h2>League table</h2>
+                <p id="leagueSubtitle">Weighted rates by hierarchy level.</p>
+              </div>
+              <div class="panel-tools">
+                <label class="field">Level
+                  <select id="leagueDimension" class="control">
+                    <option value="zone">Zonal</option>
+                    <option value="regionalLeader">Regional Leader</option>
+                    <option value="division">Division</option>
+                    <option value="district">District</option>
+                    <option value="criteria">Final Criteria</option>
+                  </select>
+                </label>
+                <label class="field">Rank by
+                  <select id="leagueMetric" class="control">
+                    <option value="consumableRate">Consumable %</option>
+                    <option value="wastageSalesRate">Wastage on Sales %</option>
+                    <option value="wastagePnpRate">Wastage on PNP %</option>
+                  </select>
+                </label>
+                <button id="exportLeague" class="btn" type="button">Download CSV</button>
+              </div>
+            </div>
+            <div id="leagueTable" class="table-wrap"></div>
+          </article>
+        </section>
+
+        <!-- ============ EXCEPTIONS ============ -->
+        <section id="view-exceptions" class="view">
+          <div id="exceptionSummary" class="grid grid-kpi"></div>
+          <article class="panel" style="margin-top: 16px">
+            <div class="panel-head">
+              <div>
+                <span class="eyebrow">Action list</span>
+                <h2>Ranked by value at stake</h2>
+                <p>Excess over target converted to taka, so the biggest financial exposure comes first — not just the biggest percentage.</p>
+              </div>
+              <div class="panel-tools">
+                <label class="field">Metric
+                  <select id="exceptionMetric" class="control">
+                    <option value="all">All metrics combined</option>
+                    <option value="consumableRate">Consumable %</option>
+                    <option value="wastageSalesRate">Wastage on Sales %</option>
+                    <option value="wastagePnpRate">Wastage on PNP %</option>
+                  </select>
+                </label>
+                <button id="exportExceptions" class="btn btn-primary" type="button">Download worklist</button>
+              </div>
+            </div>
+            <div id="exceptionList"></div>
+          </article>
+        </section>
+
+        <!-- ============ BENCHMARKS ============ -->
+        <section id="view-benchmarks" class="view">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <span class="eyebrow">Monthly control framework</span>
+                <h2>Target versus benchmark outlet average</h2>
+                <p>Weighted performance is the business result. Outlet average is the simple average of valid outlet percentages.</p>
+              </div>
+              <div class="panel-tools">
+                <label class="field">Metric
+                  <select id="benchmarkMetric" class="control">
+                    <option value="consumableRate">Consumable % on Sales</option>
+                    <option value="wastageSalesRate">Wastage % on Sales</option>
+                    <option value="wastagePnpRate">Wastage % on PNP Sales</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div id="benchmarkTable" class="table-wrap"></div>
+          </article>
+          <div id="benchmarkCards" class="grid grid-halves" style="margin-top: 16px"></div>
+        </section>
+
+        <!-- ============ MATERIALS ============ -->
+        <section id="view-materials" class="view">
+          <div class="grid grid-halves">
+            <article class="panel">
+              <div class="panel-head">
+                <div><span class="eyebrow">Where the value goes</span><h2>Top wasted items</h2>
+                <p>Net wastage value across the whole loaded period.</p></div>
+              </div>
+              <div class="panel-body"><div id="materialsWastage"></div></div>
+            </article>
+            <article class="panel">
+              <div class="panel-head">
+                <div><span class="eyebrow">Where the value goes</span><h2>Top consumable items</h2>
+                <p>Net consumable value across the whole loaded period.</p></div>
+              </div>
+              <div class="panel-body"><div id="materialsConsumable"></div></div>
+            </article>
+          </div>
+          <p style="margin-top: 12px; font-size: 12px; color: var(--ink-3)">
+            Material detail covers the whole loaded period and is not affected by the date or hierarchy filters.
+            Per-outlet material detail is in each outlet's profile.
+          </p>
+        </section>
+
+        <!-- ============ OUTLETS ============ -->
+        <section id="view-outlets" class="view">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <span class="eyebrow">Operating detail</span>
+                <h2>Outlet performance register</h2>
+                <p id="outletTableSubtitle">All selected outlets</p>
+              </div>
+              <div class="panel-tools">
+                <label class="field">
+                  <span class="sr-only">Search this table</span>
+                  <input id="tableSearch" class="control" type="search" placeholder="Search this table" autocomplete="off" />
+                </label>
+                <button id="exportCsv" class="btn btn-primary" type="button">Download CSV</button>
+              </div>
+            </div>
+            <div id="outletTable" class="table-wrap"></div>
+            <div class="pager">
+              <span id="paginationSummary">—</span>
+              <div class="pager-controls">
+                <button id="previousPage" class="page-button" type="button">Previous</button>
+                <span id="pageNumber">Page 1</span>
+                <button id="nextPage" class="page-button" type="button">Next</button>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <footer class="page-foot">
+          <span>Shwapno Operations · Consumable &amp; Wastage Control</span>
+          <button id="methodologyButton" class="text-button" type="button">Definitions &amp; methodology</button>
+        </footer>
+      </main>
+    </div>
+
+    <div id="scrim" class="scrim" hidden></div>
+
+    <aside id="outletDrawer" class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" hidden>
+      <div class="drawer-head">
+        <div>
+          <span class="eyebrow">Outlet profile</span>
+          <h2 id="drawerTitle">—</h2>
+          <p id="drawerSubtitle">—</p>
+        </div>
+        <button class="drawer-close" type="button" data-close aria-label="Close outlet profile">×</button>
+      </div>
+      <div id="drawerBody" class="drawer-body"></div>
+    </aside>
+
+    <section id="dataQualityModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="dataQualityTitle" hidden>
+      <div class="modal-head">
+        <div><span class="eyebrow">Source validation</span><h2 id="dataQualityTitle">Data quality &amp; coverage</h2></div>
+        <button class="drawer-close" type="button" data-close aria-label="Close">×</button>
+      </div>
+      <div id="dataQualityContent" class="modal-body"></div>
+    </section>
+
+    <section id="methodologyModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="methodologyTitle" hidden>
+      <div class="modal-head">
+        <div><span class="eyebrow">Metric dictionary</span><h2 id="methodologyTitle">Definitions &amp; methodology</h2></div>
+        <button class="drawer-close" type="button" data-close aria-label="Close">×</button>
+      </div>
+      <div id="methodologyContent" class="modal-body"></div>
+    </section>
+
+    <script src="assets/app.js" defer></script>
+  </body>
+</html>
