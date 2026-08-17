@@ -49,6 +49,7 @@ const state = {
   tablePage: 1,
   tableSort: { key: "wastagePnpRate", direction: "desc" },
   tableSearch: "",
+  rankingSort: { key: "metric", direction: "desc" },
   leagueSort: { key: "metric", direction: "desc" },
   openOutlet: null,
   lastFocus: null,
@@ -749,11 +750,13 @@ function renderKpis(view) {
       accent: "var(--series-2)",
     }),
     kpiCard({
-      label: "Value over target",
+      label: "Amount",
       value: formatBDT(summary.excessTotal),
-      sub: `<strong>${formatInteger(summary.aboveAny)}</strong> outlets above at least one target`,
-      footLeft: `${formatInteger(summary.outlets - summary.mapped)} unmapped`,
-      footRight: prior ? valueDeltaMarkup(summary.excessTotal, prior.excessTotal) : "",
+      sub: "More than target: Consumable + Wastage combined",
+      footLeft: `<strong>${formatInteger(summary.aboveAny)}</strong> outlets above at least one target`,
+      footRight: prior
+        ? valueDeltaMarkup(summary.excessTotal, prior.excessTotal)
+        : `${formatInteger(summary.outlets - summary.mapped)} unmapped`,
       accent: summary.aboveAny ? "var(--bad)" : "var(--good)",
     }),
   ];
@@ -958,44 +961,6 @@ function groupMetrics(metrics, dimension) {
   }));
 }
 
-function renderRanking(view) {
-  const dimension = $("#rankingDimension").value;
-  const metricKey = $("#rankingMetric").value;
-  const definition = METRICS[metricKey];
-  const groups = groupMetrics(view.metrics, dimension)
-    .filter((group) => isNumber(group[metricKey]))
-    .sort((a, b) => b[metricKey] - a[metricKey])
-    .slice(0, 12);
-
-  const container = $("#rankingChart");
-  if (!groups.length) {
-    container.innerHTML = '<div class="empty-state">No comparable groups for this metric.</div>';
-    return;
-  }
-  const maxValue =
-    Math.max(...groups.flatMap((group) => [group[metricKey] || 0, group.targets[metricKey] || 0]), 0.0001) * 1.08;
-
-  container.innerHTML = groups
-    .map((group) => {
-      const actual = group[metricKey];
-      const target = group.targets[metricKey];
-      const status = compareStatus(actual, target, group[definition.numerator]);
-      const width = Math.min(100, Math.max(0, (actual / maxValue) * 100));
-      const targetPosition = isNumber(target) ? Math.min(100, Math.max(0, (target / maxValue) * 100)) : null;
-      const colour = status.key === "bad" ? "var(--bad)" : status.key === "near" ? "var(--warn)" : "var(--good)";
-      return `<div class="rank-row">
-        <div class="rank-name"><strong title="${escapeHtml(group.label)}">${escapeHtml(group.label)}</strong><span>${formatInteger(group.outlets)} outlet${group.outlets === 1 ? "" : "s"} · ${escapeHtml(formatBDT(group.sales))}</span></div>
-        <div class="bar-track" aria-label="${escapeHtml(definition.label)} ${escapeHtml(formatPercent(actual))}, target ${escapeHtml(formatPercent(target))}">
-          <div class="bar-fill" style="width:${width}%;--bar-color:${colour}"></div>
-          ${targetPosition == null ? "" : `<span class="bar-target" style="left:${targetPosition}%" title="Target ${escapeHtml(formatPercent(target))}"></span>`}
-        </div>
-        <div class="rank-value">${escapeHtml(formatPercent(actual))}</div>
-        ${chip(status)}
-      </div>`;
-    })
-    .join("");
-}
-
 /* ----------------------------------------------------------------- movers */
 
 function renderMovers(view) {
@@ -1035,13 +1000,20 @@ function renderMovers(view) {
   $("#moversSubtitle").textContent = `${METRICS[metricKey].label} versus ${formatShortDate(view.prior.from)}–${formatShortDate(view.prior.to)}.`;
 }
 
-/* ----------------------------------------------------------- league table */
+/* ------------------------------------------------------ performance tables */
 
-function leagueRows(view) {
-  const dimension = $("#leagueDimension").value;
-  const metricKey = $("#leagueMetric").value;
+const HIERARCHY_LABELS = {
+  zone: "Zonal",
+  regionalLeader: "Regional Leader",
+  division: "Division",
+  district: "District",
+  criteria: "Final Criteria",
+  outlet: "Outlet",
+};
+
+function performanceRows(view, dimension, metricKey, sortState) {
   const groups = groupMetrics(view.metrics, dimension).filter((group) => group.outlets > 0);
-  const { key, direction } = state.leagueSort;
+  const { key, direction } = sortState;
   const multiplier = direction === "asc" ? 1 : -1;
 
   const value = (group) => {
@@ -1054,57 +1026,37 @@ function leagueRows(view) {
     return group[key];
   };
 
-  return {
-    dimension,
-    metricKey,
-    groups: groups.sort((a, b) => {
-      const av = value(a);
-      const bv = value(b);
-      if (key === "label") return String(av).localeCompare(String(bv)) * multiplier;
-      const aMissing = !isNumber(av);
-      const bMissing = !isNumber(bv);
-      if (aMissing && bMissing) return String(a.label).localeCompare(String(b.label));
-      if (aMissing) return 1;
-      if (bMissing) return -1;
-      return av === bv ? String(a.label).localeCompare(String(b.label)) : (av - bv) * multiplier;
-    }),
-  };
+  return groups.sort((a, b) => {
+    const av = value(a);
+    const bv = value(b);
+    if (key === "label") return String(av).localeCompare(String(bv)) * multiplier;
+    const aMissing = !isNumber(av);
+    const bMissing = !isNumber(bv);
+    if (aMissing && bMissing) return String(a.label).localeCompare(String(b.label));
+    if (aMissing) return 1;
+    if (bMissing) return -1;
+    return av === bv ? String(a.label).localeCompare(String(b.label)) : (av - bv) * multiplier;
+  });
 }
 
-function leagueHeader(label, key, numeric = false) {
-  const active = state.leagueSort.key === key;
-  const arrow = state.leagueSort.direction === "asc" ? " ↑" : " ↓";
-  return `<th class="${numeric ? "numeric" : ""}"><button class="sort-button ${active ? "is-active" : ""}" data-league-sort="${key}" data-arrow="${arrow}">${escapeHtml(label)}</button></th>`;
+function performanceHeader(label, key, sortState, sortAttribute, numeric = false) {
+  const active = sortState.key === key;
+  const arrow = sortState.direction === "asc" ? " ↑" : " ↓";
+  return `<th class="${numeric ? "numeric" : ""}"><button class="sort-button ${active ? "is-active" : ""}" ${sortAttribute}="${key}" data-arrow="${arrow}">${escapeHtml(label)}</button></th>`;
 }
 
-function renderLeague(view) {
-  const { dimension, metricKey, groups } = leagueRows(view);
+function performanceTable(groups, dimension, metricKey, sortState, sortAttribute) {
   const definition = METRICS[metricKey];
-  const labels = {
-    zone: "Zonal",
-    regionalLeader: "Regional Leader",
-    division: "Division",
-    district: "District",
-    criteria: "Final Criteria",
-  };
-  $("#leagueSubtitle").textContent = `${definition.label} by ${labels[dimension]}. Weighted performance; lower is better.`;
-
-  const container = $("#leagueTable");
-  if (!groups.length) {
-    container.innerHTML = '<div class="empty-state">No groups match the current filters.</div>';
-    return;
-  }
-
-  container.innerHTML = `<table><thead><tr>
+  return `<table><thead><tr>
     <th class="numeric">#</th>
-    ${leagueHeader(labels[dimension], "label")}
-    ${leagueHeader("Outlets", "outlets", true)}
-    ${leagueHeader("Sales Base", definition.denominator, true)}
-    ${leagueHeader(definition.valueLabel, definition.numerator, true)}
+    ${performanceHeader(HIERARCHY_LABELS[dimension], "label", sortState, sortAttribute)}
+    ${performanceHeader("Outlets", "outlets", sortState, sortAttribute, true)}
+    ${performanceHeader("Sales Base", definition.denominator, sortState, sortAttribute, true)}
+    ${performanceHeader(definition.valueLabel, definition.numerator, sortState, sortAttribute, true)}
     <th class="numeric">Target</th>
-    ${leagueHeader("Weighted Actual", "metric", true)}
-    ${leagueHeader("Variance", "variance", true)}
-    ${leagueHeader("Value Over Target", "excessTotal", true)}
+    ${performanceHeader("Weighted Actual", "metric", sortState, sortAttribute, true)}
+    ${performanceHeader("Variance", "variance", sortState, sortAttribute, true)}
+    ${performanceHeader("Amount", "excessTotal", sortState, sortAttribute, true)}
     <th>Status</th>
   </tr></thead><tbody>${groups
     .map((group, index) => {
@@ -1126,6 +1078,48 @@ function renderLeague(view) {
       </tr>`;
     })
     .join("")}</tbody></table>`;
+}
+
+function rankingRows(view) {
+  const dimension = $("#rankingDimension").value;
+  const metricKey = $("#rankingMetric").value;
+  return {
+    dimension,
+    metricKey,
+    groups: performanceRows(view, dimension, metricKey, state.rankingSort),
+  };
+}
+
+function leagueRows(view) {
+  const dimension = $("#leagueDimension").value;
+  const metricKey = $("#leagueMetric").value;
+  return {
+    dimension,
+    metricKey,
+    groups: performanceRows(view, dimension, metricKey, state.leagueSort),
+  };
+}
+
+function renderRanking(view) {
+  const { dimension, metricKey, groups } = rankingRows(view);
+  const definition = METRICS[metricKey];
+  $("#rankingSubtitle").textContent = `${definition.label} by ${HIERARCHY_LABELS[dimension]}. Weighted performance; lower is better.`;
+
+  const container = $("#rankingTable");
+  container.innerHTML = groups.length
+    ? performanceTable(groups, dimension, metricKey, state.rankingSort, "data-ranking-sort")
+    : '<div class="empty-state">No groups match the current filters.</div>';
+}
+
+function renderLeague(view) {
+  const { dimension, metricKey, groups } = leagueRows(view);
+  const definition = METRICS[metricKey];
+  $("#leagueSubtitle").textContent = `${definition.label} by ${HIERARCHY_LABELS[dimension]}. Weighted performance; lower is better.`;
+
+  const container = $("#leagueTable");
+  container.innerHTML = groups.length
+    ? performanceTable(groups, dimension, metricKey, state.leagueSort, "data-league-sort")
+    : '<div class="empty-state">No groups match the current filters.</div>';
 }
 
 /* -------------------------------------------------------------- exceptions */
@@ -1157,7 +1151,7 @@ function renderExceptions(view) {
 
   $("#exceptionSummary").innerHTML = [
     kpiCard({
-      label: "Total value over target",
+      label: "Amount",
       value: formatBDT(totalExposure),
       sub: `Across <strong>${formatInteger(items.length)}</strong> outlets in the current selection`,
       footLeft: "Excess ÷ target basis",
@@ -1469,7 +1463,7 @@ function openOutlet(code) {
       <div class="stat"><span>Overall sales</span><strong>${escapeHtml(formatBDT(row.sales))}</strong><small>PNP ${escapeHtml(formatBDT(row.pnpSales))}</small></div>
       <div class="stat"><span>Consumable</span><strong>${escapeHtml(formatBDT(row.consumable))}</strong></div>
       <div class="stat"><span>Wastage</span><strong>${escapeHtml(formatBDT(row.wastage))}</strong></div>
-      <div class="stat"><span>Value over target</span><strong style="color:${row.excessTotal > 0 ? "var(--bad)" : "var(--good)"}">${escapeHtml(row.excessTotal > 0 ? formatBDT(row.excessTotal) : "None")}</strong></div>
+      <div class="stat"><span>Amount</span><strong style="color:${row.excessTotal > 0 ? "var(--bad)" : "var(--good)"}">${escapeHtml(row.excessTotal > 0 ? formatBDT(row.excessTotal) : "None")}</strong></div>
     </div>
 
     <div><div class="section-title">Against target</div><div class="stat-grid">${statBlocks}</div></div>
@@ -1613,7 +1607,7 @@ function renderMethodologyModal() {
     ["Hierarchy performance", definitions.aggregateRate],
     ["Benchmark outlet average", definitions.outletAverage],
     ["Target highlighting", "Lower is better. Outlet Average below Target is green and shown as Target > Outlet Avg; above target is red. Within 0.01 percentage point is amber."],
-    ["Value over target", "For each metric where the outlet is above target: (actual − target) × the metric's sales base. Consumable and wastage are added; the two wastage measures describe the same taka, so only the larger is counted."],
+    ["Amount", "For each metric where the outlet is above target: (actual − target) × the metric's sales base. Consumable and wastage are added; the two wastage measures describe the same taka, so only the larger is counted."],
     ["Period comparison", "The equal-length window immediately before the selected range. Shown only when that window falls inside the loaded data."],
     ["Material detail", "Net value by material from the SAP exports, covering the whole loaded period. Not affected by the date filter."],
   ];
@@ -1686,7 +1680,7 @@ function exportOutlets() {
     ["Outlet Code", "Outlet Name", "Regional Leader", "Zonal", "Division", "District", "Format", "PNP Status",
      "Ownership", "Final Criteria", "Overall Sales", "PNP Sales (FRESH PRODUCE)", "Consumable Value", "Consumable %",
      "Consumable Target %", "Wastage Value", "Wastage % on Sales", "Wastage Sales Target %", "Wastage % on PNP Sales",
-     "Wastage PNP Target %", "Value Over Target", "Period From", "Period To"],
+     "Wastage PNP Target %", "Amount", "Period From", "Period To"],
     rows.map((row) => [
       row.code, row.name, row.regionalLeader, row.zone, row.division, row.district, row.format, row.pnpStatus,
       row.ownership, row.criteria, row.sales, row.pnpSales, row.consumable, csvPercent(row.consumableRate),
@@ -1703,7 +1697,7 @@ function exportLeague() {
   downloadCsv(
     `Consumable-Wastage-League-${dimension}-${to}.csv`,
     ["Rank", "Group", "Outlets", "Sales Base", definition.valueLabel, "Target %", "Weighted Actual %",
-     "Variance pp", "Value Over Target", "Period From", "Period To"],
+     "Variance pp", "Amount", "Period From", "Period To"],
     groups.map((group, index) => [
       index + 1, group.label, group.outlets, Math.round(group[definition.denominator]),
       Math.round(group[definition.numerator]), csvPercent(group.targets[metricKey]), csvPercent(group[metricKey]),
@@ -1720,7 +1714,7 @@ function exportExceptions() {
   downloadCsv(
     `Consumable-Wastage-Worklist-${to}.csv`,
     ["Priority", "Outlet Code", "Outlet Name", "Regional Leader", "Zonal", "District", "Final Criteria",
-     "Driver Metric", "Actual %", "Target %", "Variance pp", "Value Over Target", "Period From", "Period To"],
+     "Driver Metric", "Actual %", "Target %", "Variance pp", "Amount", "Period From", "Period To"],
     items.map(({ row, value, metricKey }, index) => [
       index + 1, row.code, row.name, row.regionalLeader, row.zone, row.district, row.criteria,
       METRICS[metricKey].label, csvPercent(row[metricKey]), csvPercent(row[METRICS[metricKey].target]),
@@ -1868,6 +1862,18 @@ function attachEvents() {
     }
     const row = event.target.closest("[data-outlet]");
     if (row) openOutlet(row.dataset.outlet);
+  });
+
+  $("#rankingTable").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-ranking-sort]");
+    if (!button) return;
+    const key = button.dataset.rankingSort;
+    if (state.rankingSort.key === key) {
+      state.rankingSort.direction = state.rankingSort.direction === "asc" ? "desc" : "asc";
+    } else {
+      state.rankingSort = { key, direction: key === "label" ? "asc" : "desc" };
+    }
+    renderRanking(state.view);
   });
 
   $("#leagueTable").addEventListener("click", (event) => {
